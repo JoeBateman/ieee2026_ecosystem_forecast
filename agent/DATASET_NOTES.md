@@ -322,3 +322,48 @@ from its own raw, compounding-error rollout gradient. Two concrete ways to wire 
 
 Worth trying if the current fully-recursive training turns out to converge slower or less stably
 than the tutorial's teacher-forced RF/DL baselines.
+
+**Implemented as `TeacherStudentRollout`** in `notebooks/helpers.py` (see §12) — a model-agnostic
+`nn.Module` wrapper taking an externally-defined "core" model (any architecture matching
+`MonthMetaModel`'s `forward` signature) and adding `teacher_rollout`/`student_rollout`/
+`compute_losses` (supervised + distillation loss) plus `update_teacher`, an exponential-moving-average
+update (the "mean teacher" pattern, Tarvainen & Valpola 2017) that lets a frozen, pretrained teacher
+keep drifting slowly toward the student's weights during student training, rather than staying a
+fixed snapshot — the goal being a teacher (and thus a distillation target) that keeps improving
+alongside the student instead of capping it.
+
+## 12. Shared code — `notebooks/helpers.py`
+
+Constants, normalization helpers, and model-training utilities that were originally built up inline
+in `recursive_models.ipynb` are being extracted into `notebooks/helpers.py` so new model notebooks
+can `from helpers import ...` instead of re-pasting/redefining them as more architectures are added.
+**Future agents building a new model notebook should add shared, reusable pieces here rather than
+duplicating them inline again.**
+
+Current contents:
+
+- **Constants**: `DATA_DIR`/`GLOB_DIR`/`STAT_DIR`, `TREE_BAND`, `AGES`,
+  `N_SITE`/`N_YEAR`/`N_MONTH`/`N_FEA`/`N_OUT` (see §2–§3 above for what these mean).
+- **Arrays/stats loaded at import time**: `mask2d`, the age-triplet prior
+  (`TRI_AGE`/`TRI_MEAN`/`TRI_SLOPE`, see §4), and `data_stats.npz`'s normalization stats
+  (`x_mean`/`x_std`/`y_mean`/`y_std`, see §7). **Importing this module has side effects** — it reads
+  several files off disk and prints a few lines — the moment it's imported, not lazily.
+- **`normalize_x` / `inv_x`** — the z-score normalize/denormalize helpers from §7.
+- **`TeacherStudentRollout(nn.Module)`** — the teacher/student rollout wrapper described in §11.
+
+**Caveats for whoever wires this in next** (true as of this writing — check before trusting):
+
+- The file is **missing its own imports** (`numpy as np`, `torch`, `from torch import nn`) — it
+  currently only runs if the importing notebook has already imported those names into scope first,
+  which is fragile and import-order-dependent. Add explicit imports at the top of `helpers.py`
+  before relying on it from a notebook that doesn't happen to import numpy/torch first.
+- `DATA_DIR = "../data"` is a **relative path**, only correct when the importing code's current
+  working directory is `notebooks/` (as the existing notebooks' cwd is). A script run from elsewhere
+  (e.g. a top-level training script, or a notebook in a different folder) will fail to find the data
+  unless this is made relative to the module's own location or otherwise made robust.
+- **Neither `recursive_models.ipynb` nor `exploring.ipynb` has actually been switched over to import
+  from `helpers.py` yet** — both notebooks still carry their own inline, duplicate copies of these
+  constants/functions/`TeacherStudentRollout`. Until that migration happens, the copies **can drift
+  out of sync**: check whether you're editing the canonical version in `helpers.py` or a stale inline
+  duplicate in a notebook before changing shared logic like the constants, `normalize_x`/`inv_x`, or
+  `TeacherStudentRollout`.
