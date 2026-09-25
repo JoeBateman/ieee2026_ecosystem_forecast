@@ -367,3 +367,34 @@ Current contents:
   out of sync**: check whether you're editing the canonical version in `helpers.py` or a stale inline
   duplicate in a notebook before changing shared logic like the constants, `normalize_x`/`inv_x`, or
   `TeacherStudentRollout`.
+
+## 13. Feature engineering idea — borrowing from financial time-series ML
+
+Per discussion: this dataset has a similar shape to what quant/financial ML deals with (a long
+univariate-per-channel time series per entity, where you need to predict a future value from noisy,
+autocorrelated drivers), so techniques standard in that field are worth trying here even though the
+domain is completely different:
+
+- **Rolling statistics of the monthly climate drivers** — rolling mean/std/min/max of `ta_m`, `pr`,
+  etc. over trailing windows (e.g. 3, 6, 12, 24 months) as extra input features, not just the current
+  annual mean the RF/`MonthMetaModel` baselines currently use (`prep_year`'s `x[:, year, :, :]`,
+  §8/DATASET_NOTES `prep_year`). A rolling mean smooths noisy single-year weather into a "climate
+  trend" signal; a rolling std captures volatility/variability the model might need to distinguish a
+  genuinely-shifting climate from a single unusual year — analogous to how price momentum/volatility
+  indicators (moving averages, Bollinger-band-style rolling std) are standard engineered features in
+  financial forecasting.
+- **Momentum / lag features on the target trajectory itself** — beyond just feeding the single
+  previous year's `v` (the current teacher-forcing/autoregressive convention, §8/§11), also feed the
+  *change* over the last N years (`v_t - v_{t-N}`) or a short rolling average of recent `v` values.
+  This mirrors financial ML's use of lagged returns/moving averages of the target series as features
+  for the next prediction, and could help the model separate "currently growing fast" stands from
+  "currently plateaued" stands more directly than a single previous value does (the age-conditioned
+  `age_slope` in `age_triplet.npz`, §4, is effectively a coarse, age-bucketed version of this idea
+  already present in the data).
+- **Caveat carried over from finance**: rolling/lag features computed naively can leak future
+  information if not shifted correctly, and adding many correlated rolling windows can blow up the
+  feature count for comparatively little new signal (the 136 input features already include several
+  variables at 24 sub-channels each, e.g. `hus`/`ta_h`/`rsds`/`sfcWind`, so there's a real risk of
+  redundant, highly-correlated columns). Worth validating any new rolling feature actually improves
+  held-out global-test metrics (§9's `metrics_table_global`) before keeping it, rather than assuming
+  more engineered features are automatically better.
