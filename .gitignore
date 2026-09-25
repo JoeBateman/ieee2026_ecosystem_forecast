@@ -2,3 +2,7 @@ data
 models
 submissions
 docs_ref
+cache
+notebooks/__pycache__
+src
+run_ablate.sh
